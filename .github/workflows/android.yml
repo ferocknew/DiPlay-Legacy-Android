@@ -33,3 +33,9 @@ jobs:
             shared/build/reports/tests/
             common/build/reports/tests/
             mobile/build/reports/lint-results-debug.html
+      - name: Debug APK (no MFi identity; cannot authenticate to iPhone standalone)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-apk
+          path: mobile/build/outputs/apk/debug/*.apk
