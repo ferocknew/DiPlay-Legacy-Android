@@ -5,7 +5,9 @@ import android.hardware.usb.UsbEndpoint
 import android.hardware.usb.UsbInterface
 import android.hardware.usb.UsbConstants
 import android.hardware.usb.UsbRequest
+import android.os.Build
 import android.util.Log
+import com.shilapi.xcertplay.diagnostics.SystemEnvProbe
 import java.io.Closeable
 import java.nio.ByteBuffer
 import java.util.ArrayDeque
@@ -297,8 +299,16 @@ class NcmUsbBridge internal constructor(
         private const val MAX_QUEUED_BYTES = 1 shl 20
         private const val NANOS_PER_MILLISECOND = 1_000_000L
 
-        /** Claims and activates the NCM control/data interfaces; owns the connection on success. */
-        fun open(connection: UsbDeviceConnection, function: NcmFunctionDiscovery.NcmFunction): NcmUsbBridge {
+        /**
+         * Claims and activates the NCM control/data interfaces; owns the connection on success.
+         * [diagnostic] receives user-visible probe lines (raw transfer results, environment
+         * snapshot) when activation fails on targets without setInterface().
+         */
+        fun open(
+            connection: UsbDeviceConnection,
+            function: NcmFunctionDiscovery.NcmFunction,
+            diagnostic: ((String) -> Unit)? = null,
+        ): NcmUsbBridge {
             val claimed = ArrayList<UsbInterface>(2)
             try {
                 val descriptorHostMac = readNcmHostMac(connection, function.control.id)
@@ -341,7 +351,13 @@ class NcmUsbBridge internal constructor(
                     IphoneCarPlayConfiguration.TAG,
                     "setInterface iface=${function.data.id}/${IphoneCarPlayConfiguration.alternateSetting(function.data)} ok=$altSelected",
                 )
-                if (!altSelected) {
+                var activated = altSelected
+                if (!activated && Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
+                    activated = recoverInterfaceSelection(connection, function.data, diagnostic)
+                }
+                if (!activated) {
+                    diagnostic?.invoke("ncm setInterface unrecoverable iface=${function.data.id}; attaching environment probe")
+                    for (line in SystemEnvProbe.captureThrottled()) diagnostic?.invoke(line)
                     throw IphoneUsbException.DeviceUnavailable(
                         "Android could not select the NCM data alternate setting",
                     )
@@ -370,6 +386,42 @@ class NcmUsbBridge internal constructor(
                 if (error is IphoneUsbException) throw error
                 throw IphoneUsbException.DeviceUnavailable("Android NCM open failed", error)
             }
+        }
+
+        /**
+         * Pre-Lollipop fallback for a failed SET_INTERFACE: retries the requested alternate with
+         * the raw transfer so its numeric result is visible, then probes alt 0 and alt 1, then one
+         * interface GET_STATUS. The first transfer that reports success (result >= 0) wins; every
+         * result is reported through [diagnostic] for the exportable diagnostic report.
+         */
+        private fun recoverInterfaceSelection(
+            connection: UsbDeviceConnection,
+            dataInterface: UsbInterface,
+            diagnostic: ((String) -> Unit)?,
+        ): Boolean {
+            val interfaceId = dataInterface.id
+            val requested = IphoneCarPlayConfiguration.alternateSetting(dataInterface)
+            for (alternate in intArrayOf(requested, 0, 1)) {
+                val result = setInterfaceControlTransfer(connection, interfaceId, alternate)
+                diagnostic?.invoke(
+                    "ncm setInterface probe iface=$interfaceId alt=$alternate result=$result",
+                )
+                if (result >= 0) {
+                    Log.i(IphoneCarPlayConfiguration.TAG, "ncm setInterface recovered iface=$interfaceId alt=$alternate")
+                    return true
+                }
+            }
+            val status = ByteArray(2)
+            val statusResult = interfaceGetStatusTransfer(connection, interfaceId, status)
+            val statusHex = if (statusResult >= 0) {
+                status.joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
+            } else {
+                "unavailable"
+            }
+            diagnostic?.invoke(
+                "ncm interface status iface=$interfaceId result=$statusResult value=$statusHex",
+            )
+            return false
         }
 
         private fun readNcmHostMac(connection: UsbDeviceConnection, controlInterfaceId: Int): ByteArray? {

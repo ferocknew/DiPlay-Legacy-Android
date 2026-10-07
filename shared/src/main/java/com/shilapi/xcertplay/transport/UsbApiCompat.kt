@@ -39,15 +39,48 @@ internal fun selectUsbConfiguration(
 
 internal fun selectUsbInterface(connection: UsbDeviceConnection, usbInterface: UsbInterface): Boolean =
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) connection.setInterface(usbInterface)
-    else connection.controlTransfer(
-        UsbConstants.USB_DIR_OUT or UsbConstants.USB_TYPE_STANDARD or 1,
-        11,
-        IphoneCarPlayConfiguration.alternateSetting(usbInterface),
+    else setInterfaceControlTransfer(
+        connection,
         usbInterface.id,
-        null,
-        0,
-        1_000,
+        IphoneCarPlayConfiguration.alternateSetting(usbInterface),
     ) >= 0
+
+/**
+ * Raw SET_INTERFACE control transfer for pre-Lollipop targets that lack setInterface(). Returns
+ * the framework transfer result so callers can record it; negative means failure.
+ */
+internal fun setInterfaceControlTransfer(
+    connection: UsbDeviceConnection,
+    interfaceId: Int,
+    alternateSetting: Int,
+): Int = connection.controlTransfer(
+    UsbConstants.USB_DIR_OUT or UsbConstants.USB_TYPE_STANDARD or UsbConstants.USB_RECIP_INTERFACE,
+    USB_REQUEST_SET_INTERFACE,
+    alternateSetting,
+    interfaceId,
+    null,
+    0,
+    USB_CONTROL_TIMEOUT_MILLIS,
+)
+
+/** Raw GET_STATUS probe aimed at one interface; [status] receives two bytes when the result >= 0. */
+internal fun interfaceGetStatusTransfer(
+    connection: UsbDeviceConnection,
+    interfaceId: Int,
+    status: ByteArray,
+): Int = connection.controlTransfer(
+    UsbConstants.USB_DIR_IN or UsbConstants.USB_TYPE_STANDARD or UsbConstants.USB_RECIP_INTERFACE,
+    USB_REQUEST_GET_STATUS,
+    0,
+    interfaceId,
+    status,
+    status.size,
+    USB_CONTROL_TIMEOUT_MILLIS,
+)
+
+private const val USB_REQUEST_GET_STATUS = 0
+private const val USB_REQUEST_SET_INTERFACE = 11
+private const val USB_CONTROL_TIMEOUT_MILLIS = 1_000
 
 @RequiresApi(Build.VERSION_CODES.LOLLIPOP)
 private fun selectUsbConfiguration21(connection: UsbDeviceConnection, value: Any?): Boolean =

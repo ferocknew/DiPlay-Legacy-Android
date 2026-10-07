@@ -19,7 +19,6 @@ import com.shilapi.xcertplay.transport.NcmUsbBridge
 import java.io.IOException
 import java.net.Inet6Address
 import java.net.InetAddress
-import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
 import java.util.concurrent.atomic.AtomicBoolean
@@ -155,6 +154,9 @@ class CarPlayVpnService : VpnService() {
 
     fun isAttached(): Boolean = active.get() && attachment != null
 
+    /** Port the AirPlay listener actually bound, which may differ from the configured port. */
+    fun boundPort(): Int? = attachment?.config?.port
+
     override fun onDestroy() {
         detach()
         super.onDestroy()
@@ -164,9 +166,10 @@ class CarPlayVpnService : VpnService() {
         generation: Int,
         replacement: AirPlayAttachment,
     ) {
-        val server = ServerSocket()
-        server.bind(InetSocketAddress(replacement.address, replacement.config.port))
-        attachment = replacement
+        val server = AirPlayPortSelector.bind(replacement.address, replacement.config.port) { busy, bound ->
+            Log.w(TAG, "AirPlay port $busy is in use; listening on $bound instead")
+        }
+        attachment = replacement.copy(config = replacement.config.copy(port = server.localPort))
         serverSocket = server
         Thread(
             { acceptLoop(generation, server) },
