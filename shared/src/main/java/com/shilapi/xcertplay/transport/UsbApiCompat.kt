@@ -54,7 +54,7 @@ internal fun setInterfaceControlTransfer(
     interfaceId: Int,
     alternateSetting: Int,
 ): Int = connection.controlTransfer(
-    UsbConstants.USB_DIR_OUT or UsbConstants.USB_TYPE_STANDARD or UsbConstants.USB_RECIP_INTERFACE,
+    UsbConstants.USB_DIR_OUT or UsbConstants.USB_TYPE_STANDARD or USB_RECIP_INTERFACE,
     USB_REQUEST_SET_INTERFACE,
     alternateSetting,
     interfaceId,
@@ -69,7 +69,7 @@ internal fun interfaceGetStatusTransfer(
     interfaceId: Int,
     status: ByteArray,
 ): Int = connection.controlTransfer(
-    UsbConstants.USB_DIR_IN or UsbConstants.USB_TYPE_STANDARD or UsbConstants.USB_RECIP_INTERFACE,
+    UsbConstants.USB_DIR_IN or UsbConstants.USB_TYPE_STANDARD or USB_RECIP_INTERFACE,
     USB_REQUEST_GET_STATUS,
     0,
     interfaceId,
@@ -80,6 +80,10 @@ internal fun interfaceGetStatusTransfer(
 
 private const val USB_REQUEST_GET_STATUS = 0
 private const val USB_REQUEST_SET_INTERFACE = 11
+
+/** bmRequestType recipient bits; UsbConstants has no RECIP constants. */
+private const val USB_RECIP_INTERFACE = 0x01
+
 private const val USB_CONTROL_TIMEOUT_MILLIS = 1_000
 
 @RequiresApi(Build.VERSION_CODES.LOLLIPOP)
